@@ -1,0 +1,117 @@
+name: data-cleaning-env
+description: >
+  A real-world OpenEnv environment where an AI agent must clean tabular datasets.
+  The agent receives dirty CSV-like data and applies targeted cleaning actions
+  (fix types, fill missing values, remove duplicates, correct inconsistencies)
+  to maximize data quality. Modeled after real-world data engineering workflows.
+version: "1.0.0"
+author: OpenEnv Hackathon
+
+tasks:
+  - id: 1
+    name: "Fix the Basics"
+    difficulty: easy
+    description: >
+      Fix obvious type and format errors in a small 10-row dataset with 4 columns
+      (name, age, email, signup_date). ~5 obvious errors including wrong types,
+      malformed emails, and invalid dates.
+    max_steps: 15
+
+  - id: 2
+    name: "Clean the Customer List"
+    difficulty: medium
+    description: >
+      Handle missing values and remove duplicate rows in a 25-row customer list
+      with 6 columns (id, name, email, phone, city, purchase_amount). ~12 errors
+      including missing values, duplicate rows, and inconsistent phone formats.
+    max_steps: 30
+
+  - id: 3
+    name: "Enterprise Data Reconciliation"
+    difficulty: hard
+    description: >
+      Resolve cross-column inconsistencies in a 50-row enterprise employee dataset
+      with 8 columns (employee_id, name, department, salary, manager_id, start_date,
+      email, status). ~25 errors including referential integrity violations, logical
+      violations (negative salary, future dates), subtle duplicates, and name/email
+      mismatches.
+    max_steps: 60
+
+action_space:
+  type: discrete_structured
+  actions:
+    - name: fix_value
+      description: Replace a specific cell value
+      params:
+        - name: row
+          type: int
+          description: 0-indexed row number
+        - name: col
+          type: str
+          description: column name
+        - name: value
+          type: str
+          description: new cell value
+    - name: fill_missing
+      description: Fill an empty/null cell
+      params:
+        - name: row
+          type: int
+        - name: col
+          type: str
+        - name: value
+          type: str
+    - name: delete_row
+      description: Remove a duplicate or invalid row
+      params:
+        - name: row
+          type: int
+    - name: fix_type
+      description: Cast a cell to its correct expected type
+      params:
+        - name: row
+          type: int
+        - name: col
+          type: str
+        - name: value
+          type: str
+    - name: submit
+      description: Finalize the cleaning — triggers final grading
+
+observation_space:
+  current_data:
+    type: "list[list[str]]"
+    description: Current state of the dataset (rows × columns)
+  column_names:
+    type: "list[str]"
+    description: Column header names
+  column_types:
+    type: "list[str]"
+    description: Expected type per column (int, float, str, date, email)
+  data_profile:
+    type: dict
+    description: Per-column stats (null_count, type_error_count) plus __duplicates__
+  quality_score:
+    type: float
+    description: Current data quality 0.0–1.0 (task-specific grader)
+  message:
+    type: str
+    description: Human-readable feedback on the last action
+  done:
+    type: bool
+  reward:
+    type: float
+
+reward:
+  description: >
+    Per-step reward = Δ quality_score after action + 0.1 bonus for correct fixes.
+    Penalty of -0.1 for introducing errors, -0.2 for deleting valid rows, -0.05 for invalid actions.
+    Submit bonus = final_quality * 0.5.
+    Step-limit penalty = -0.3 if max_steps exceeded without submitting.
+
+tags:
+  - data-cleaning
+  - tabular-data
+  - real-world
+  - openenv
+  - hackathon

@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "data-cleaning-env"
+version = "1.0.0"
+description = "An OpenEnv environment for tabular data cleaning tasks"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+keywords = ["openenv", "rl", "data-cleaning", "reinforcement-learning"]
+dependencies = [
+    "openenv-core>=0.1.0",
+    "fastapi>=0.104.0",
+    "uvicorn[standard]>=0.24.0",
+    "pydantic>=2.0.0",
+    "openai>=1.0.0",
+]
+
+[project.scripts]
+server = "data_cleaning_env.server.app:main"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-asyncio>=0.21",
+    "httpx>=0.25",
+]
+
+[tool.setuptools.packages.find]
+where = [".."]
+include = ["data_cleaning_env*"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
