@@ -4,10 +4,10 @@ Data Cleaning OpenEnv Environment - Baseline Inference Script
 Runs an LLM agent against all 3 tasks and reports reproducible baseline scores.
 
 Usage (OpenAI - paid):
-    OPENAI_API_KEY=<key> python baseline/inference.py --base-url <url>
+    OPENAI_API_KEY=<key> python inference.py --base-url <url>
 
 Usage (Groq - FREE at console.groq.com):
-    GROQ_API_KEY=<key> python baseline/inference.py --provider groq --base-url <url>
+    GROQ_API_KEY=<key> python inference.py --provider groq --base-url <url>
 
 Default base_url: http://localhost:7860
 """
@@ -30,10 +30,8 @@ except ImportError:
 try:
     from data_cleaning_env import DataCleaningAction, DataCleaningEnv
 except ImportError:
-    # baseline/ → data_cleaning_env/ → open env hackathon/ (package root)
-    _pkg_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-    sys.path.insert(0, _pkg_root)
-    from data_cleaning_env import DataCleaningAction, DataCleaningEnv  # type: ignore
+    print("ERROR: data_cleaning_env package not installed. Run: pip install -e .")
+    sys.exit(1)
 
 
 
