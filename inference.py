@@ -149,15 +149,21 @@ def parse_llm_action(content: str) -> Dict[str, Any]:
 
 
 def format_action(action: Dict[str, Any]) -> str:
-    """Format action for logging."""
-    parts = [action.get("action_type", "unknown")]
-    if action.get("row") is not None:
-        parts.append(f"row={action['row']}")
-    if action.get("col"):
-        parts.append(f"col='{action['col']}'")
-    if action.get("value"):
-        parts.append(f"value='{action['value']}'")
-    return " ".join(parts)
+    """Format action for logging in function-call style."""
+    action_type = action.get("action_type", "unknown")
+    row = action.get("row")
+    col = action.get("col")
+    value = action.get("value")
+    
+    # Format as function call style: action_type(params)
+    if action_type == "submit":
+        return "submit()"
+    elif action_type == "delete_row":
+        return f"delete_row({row})"
+    elif action_type in ("fix_value", "fill_missing", "fix_type"):
+        return f"{action_type}({row},'{col}','{value}')"
+    else:
+        return f"{action_type}()"
 
 
 def wait_for_env(env: EnvClient, max_retries: int = 30, delay: int = 10) -> bool:
@@ -253,9 +259,13 @@ def run_task(env: EnvClient, task_id: int) -> tuple[bool, int, List[float]]:
             
             # [STEP] line (required format)
             done_str = "true" if done else "false"
-            error_str = error_msg if error_msg else "null"
+            # Sanitize error message (remove newlines, limit length)
+            if error_msg:
+                error_str = error_msg.replace('\n', ' ').replace('\r', '')[:100]
+            else:
+                error_str = "null"
             action_str = format_action(action)
-            print(f"[STEP] step={step_count} action={action_str} reward={reward:.2f} done={done_str} error={error_str}")
+            print(f"[STEP] step={step_count} action={action_str} reward={reward:.2f} done={done_str} error={error_str}", flush=True)
         
         # Determine success (quality > 0.5 is a reasonable threshold)
         success = quality_score >= 0.5
@@ -278,9 +288,9 @@ def main():
     try:
         # Wait for environment
         if not wait_for_env(env, max_retries=30, delay=10):
-            print(f"[START] task=all env=data-cleaning model={MODEL_NAME}")
-            print(f"[STEP] step=0 action=none reward=0.00 done=true error=Environment not available")
-            print(f"[END] success=false steps=0 rewards=")
+            print(f"[START] task=all env=data-cleaning model={MODEL_NAME}", flush=True)
+            print(f"[STEP] step=0 action=none reward=0.00 done=true error=Environment_not_available", flush=True)
+            print(f"[END] success=false steps=0 rewards=", flush=True)
             sys.exit(1)
         
         # Run all 3 tasks
@@ -288,7 +298,7 @@ def main():
             task_name = {1: "fix-basics", 2: "clean-customers", 3: "enterprise-reconcile"}[task_id]
             
             # [START] line (required format)
-            print(f"[START] task={task_name} env=data-cleaning model={MODEL_NAME}")
+            print(f"[START] task={task_name} env=data-cleaning model={MODEL_NAME}", flush=True)
             
             # Run the task
             success, steps, rewards = run_task(env, task_id)
@@ -296,12 +306,13 @@ def main():
             # [END] line (required format)
             success_str = "true" if success else "false"
             rewards_str = ",".join(f"{r:.2f}" for r in rewards) if rewards else ""
-            print(f"[END] success={success_str} steps={steps} rewards={rewards_str}")
+            print(f"[END] success={success_str} steps={steps} rewards={rewards_str}", flush=True)
     
     except Exception as e:
-        print(f"[START] task=all env=data-cleaning model={MODEL_NAME}")
-        print(f"[STEP] step=0 action=none reward=0.00 done=true error={str(e)}")
-        print(f"[END] success=false steps=0 rewards=")
+        err_msg = str(e).replace('\n', ' ').replace('\r', '').replace(' ', '_')[:50]
+        print(f"[START] task=all env=data-cleaning model={MODEL_NAME}", flush=True)
+        print(f"[STEP] step=0 action=none reward=0.00 done=true error={err_msg}", flush=True)
+        print(f"[END] success=false steps=0 rewards=", flush=True)
         sys.exit(1)
     
     finally:
