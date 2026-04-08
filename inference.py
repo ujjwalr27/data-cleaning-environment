@@ -193,10 +193,10 @@ def wait_for_env(env: EnvClient, max_retries: int = 30, delay: int = 10) -> bool
 # Run Task (with proper output format)
 # =============================================================================
 
-def run_task(env: EnvClient, task_id: int) -> tuple[bool, int, List[float]]:
+def run_task(env: EnvClient, task_id: int) -> tuple[bool, int, List[float], float]:
     """
     Run an LLM agent on one task.
-    Returns: (success, step_count, rewards_list)
+    Returns: (success, step_count, rewards_list, final_score)
     """
     rewards: List[float] = []
     step_count = 0
@@ -291,7 +291,8 @@ def run_task(env: EnvClient, task_id: int) -> tuple[bool, int, List[float]]:
         error_msg = str(e)
         success = False
     
-    return success, step_count, rewards
+    final_score = clamp_score(quality_score)
+    return success, step_count, rewards, final_score
 
 
 # =============================================================================
@@ -308,7 +309,7 @@ def main():
             r = clamp_score(0.0)
             print(f"[START] task=all env=data-cleaning model={MODEL_NAME}", flush=True)
             print(f"[STEP] step=1 action=none() reward={r:.2f} done=true error=Environment_not_available", flush=True)
-            print(f"[END] success=false steps=1 rewards={r:.2f}", flush=True)
+            print(f"[END] success=false steps=1 score={r:.2f} rewards={r:.2f}", flush=True)
             sys.exit(1)
         
         # Run all 3 tasks
@@ -319,19 +320,19 @@ def main():
             print(f"[START] task={task_name} env=data-cleaning model={MODEL_NAME}", flush=True)
             
             # Run the task
-            success, steps, rewards = run_task(env, task_id)
+            success, steps, rewards, score = run_task(env, task_id)
             
             # [END] line (required format) - rewards already clamped in run_task
             success_str = "true" if success else "false"
             rewards_str = ",".join(f"{r:.2f}" for r in rewards) if rewards else f"{clamp_score(0.0):.2f}"
-            print(f"[END] success={success_str} steps={steps} rewards={rewards_str}", flush=True)
+            print(f"[END] success={success_str} steps={steps} score={score:.2f} rewards={rewards_str}", flush=True)
     
     except Exception as e:
         err_msg = str(e).replace('\n', ' ').replace('\r', '').replace(' ', '_')[:50]
         r = clamp_score(0.0)
         print(f"[START] task=all env=data-cleaning model={MODEL_NAME}", flush=True)
         print(f"[STEP] step=1 action=none() reward={r:.2f} done=true error={err_msg}", flush=True)
-        print(f"[END] success=false steps=1 rewards={r:.2f}", flush=True)
+        print(f"[END] success=false steps=1 score={r:.2f} rewards={r:.2f}", flush=True)
         sys.exit(1)
     
     finally:
