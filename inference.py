@@ -1,25 +1,22 @@
 """
 Data Cleaning OpenEnv Environment - Baseline Inference Script
 
-Runs an LLM agent against all 3 tasks and reports reproducible baseline scores.
-
-Usage (OpenAI - paid):
-    OPENAI_API_KEY=<key> python inference.py --base-url <url>
-
-Usage (Groq - FREE at console.groq.com):
-    GROQ_API_KEY=<key> python inference.py --provider groq --base-url <url>
-
-Default base_url: http://localhost:7860
+OpenEnv Hackathon Submission - Compliant with all requirements.
 """
 from __future__ import annotations
 
-import argparse
 import json
 import os
 import sys
 from typing import Optional
 
-# OpenAI Client (also used for Groq which is OpenAI-compatible)
+# Required environment variables with defaults
+API_BASE_URL = os.getenv("API_BASE_URL", "https://ujjwalml-data-cleaning-env.hf.space")
+MODEL_NAME = os.getenv("MODEL_NAME", "gpt-4o-mini")
+HF_TOKEN = os.getenv("HF_TOKEN")  # No default - optional
+LOCAL_IMAGE_NAME = os.getenv("LOCAL_IMAGE_NAME")  # Optional for Docker
+
+# OpenAI Client
 try:
     from openai import OpenAI
 except ImportError:
@@ -93,16 +90,20 @@ def run_task(
     verbose: bool = True,
 ) -> float:
     """Run an LLM agent on one task and return the final quality score."""
-    print(f"\n{'='*60}")
-    print(f"TASK {task_id}")
-    print(f"{'='*60}")
-
+    # START log (required format)
+    print("START")
+    
     # Reset the environment
     step_result = env.reset(task_id=task_id)
     obs = step_result.observation
-    print(f"Initial quality score: {obs.quality_score:.4f}")
-    print(f"Dataset: {len(obs.current_data)} rows x {len(obs.column_names)} columns")
-    print(f"Columns: {obs.column_names}")
+    
+    if verbose:
+        print(f"\n{'='*60}")
+        print(f"TASK {task_id}")
+        print(f"{'='*60}")
+        print(f"Initial quality score: {obs.quality_score:.4f}")
+        print(f"Dataset: {len(obs.current_data)} rows x {len(obs.column_names)} columns")
+        print(f"Columns: {obs.column_names}")
 
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
     final_score = obs.quality_score
@@ -136,15 +137,15 @@ def run_task(
         messages.append({"role": "assistant", "content": assistant_content})
         action = parse_llm_action(assistant_content)
 
-        if verbose:
-            print(f"\nStep {step + 1}: {action.action_type}", end="")
-            if action.row is not None:
-                print(f" row={action.row}", end="")
-            if action.col:
-                print(f" col={action.col}", end="")
-            if action.value:
-                print(f" value='{action.value}'", end="")
-            print()
+        # STEP log (required format)
+        print(f"STEP: {action.action_type}", end="")
+        if action.row is not None:
+            print(f" row={action.row}", end="")
+        if action.col:
+            print(f" col={action.col}", end="")
+        if action.value:
+            print(f" value='{action.value}'", end="")
+        print()
 
         result = env.step(action)
         obs = result.observation
@@ -157,68 +158,39 @@ def run_task(
         if obs.done:
             break
 
-    print(f"\nTask {task_id} final score: {final_score:.4f}")
+    # END log (required format)
+    print("END")
+    
+    if verbose:
+        print(f"\nTask {task_id} final score: {final_score:.4f}")
+    
     return final_score
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Data Cleaning OpenEnv Baseline Inference")
-    parser.add_argument(
-        "--base-url",
-        default="http://localhost:7860",
-        help="Base URL of the running environment",
-    )
-    parser.add_argument(
-        "--model",
-        default="gpt-4o-mini",
-        help="Model to use (auto-set to llama-3.3-70b-versatile for groq if not changed)",
-    )
-    parser.add_argument(
-        "--tasks",
-        nargs="+",
-        type=int,
-        default=[1, 2, 3],
-        help="Task IDs to run (default: 1 2 3)",
-    )
-    parser.add_argument(
-        "--provider",
-        default="openai",
-        choices=["openai", "groq"],
-        help="LLM provider: openai (paid) or groq (free at console.groq.com)",
-    )
-    parser.add_argument("--verbose", action="store_true", default=True)
-    args = parser.parse_args()
-
-    # Set up LLM client
-    if args.provider == "groq":
-        api_key = os.environ.get("GROQ_API_KEY")
-        if not api_key:
-            print("ERROR: GROQ_API_KEY not set. Get a free key at https://console.groq.com")
-            sys.exit(1)
-        llm_client = OpenAI(api_key=api_key, base_url="https://api.groq.com/openai/v1")
-        model = args.model if args.model != "gpt-4o-mini" else "llama-3.3-70b-versatile"
-    else:
-        api_key = os.environ.get("OPENAI_API_KEY")
-        if not api_key:
-            print("ERROR: OPENAI_API_KEY not set. Get a key at https://platform.openai.com")
-            sys.exit(1)
-        llm_client = OpenAI(api_key=api_key)
-        model = args.model
-
+    # Use environment variables configured via OpenEnv requirements
+    api_key = os.environ.get("OPENAI_API_KEY")
+    if not api_key:
+        print("ERROR: OPENAI_API_KEY not set. Get a key at https://platform.openai.com")
+        sys.exit(1)
+    
+    # Create OpenAI client using env vars
+    llm_client = OpenAI(api_key=api_key)
+    
     print(f"Data Cleaning OpenEnv Baseline")
-    print(f"Provider: {args.provider} | Model: {model}")
-    print(f"Environment: {args.base_url}")
-    print(f"Tasks: {args.tasks}")
+    print(f"Model: {MODEL_NAME}")
+    print(f"Environment: {API_BASE_URL}")
+    print(f"Tasks: [1, 2, 3]")
 
     scores = {}
-    with DataCleaningEnv(base_url=args.base_url).sync() as env:
-        for task_id in args.tasks:
+    with DataCleaningEnv(base_url=API_BASE_URL).sync() as env:
+        for task_id in [1, 2, 3]:
             score = run_task(
                 client=llm_client,
                 env=env,
                 task_id=task_id,
-                model=model,
-                verbose=args.verbose,
+                model=MODEL_NAME,
+                verbose=True,
             )
             scores[task_id] = score
 
