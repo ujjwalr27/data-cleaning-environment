@@ -24,6 +24,21 @@ from data_cleaning_env.graders import grade
 
 Dataset = List[List[str]]
 
+# Epsilon to ensure rewards are strictly within (0, 1)
+REWARD_EPSILON = 0.0001
+
+
+def _clamp_reward(reward: float) -> float:
+    """Clamp reward to be strictly between 0 and 1 (exclusive)."""
+    # First clamp to [0, 1]
+    reward = max(0.0, min(1.0, reward))
+    # Then ensure strictly within (0, 1)
+    if reward <= 0.0:
+        return REWARD_EPSILON
+    if reward >= 1.0:
+        return 1.0 - REWARD_EPSILON
+    return reward
+
 
 def _compute_data_profile(data: Dataset, col_names: List[str], col_types: List[str]) -> Dict[str, Any]:
     """Compute per-column quality statistics."""
@@ -263,6 +278,9 @@ class DataCleaningEnvironment(Environment):
         current_quality = _compute_quality_score(self._current_data, self._ground_truth, self._task_id)
         profile = _compute_data_profile(self._current_data, self._col_names, self._col_types)
 
+        # Clamp reward to strictly within (0, 1) as required by OpenEnv spec
+        clamped_reward = _clamp_reward(reward)
+
         return DataCleaningObservation(
             current_data=copy.deepcopy(self._current_data),
             column_names=self._col_names,
@@ -271,7 +289,7 @@ class DataCleaningEnvironment(Environment):
             quality_score=current_quality,
             message=message,
             done=self._done,
-            reward=reward,
+            reward=clamped_reward,
         )
 
     @property
