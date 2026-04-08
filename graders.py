@@ -2,7 +2,7 @@
 Data Cleaning OpenEnv Environment - Graders
 
 Deterministic grader functions for all 3 tasks.
-Each grader returns a float in [0.0, 1.0].
+Each grader returns a float strictly within (0.0, 1.0) — never exactly 0 or 1.
 """
 from __future__ import annotations
 
@@ -10,6 +10,19 @@ import re
 from typing import Dict, List, Tuple
 
 Dataset = List[List[str]]
+
+# Epsilon to ensure scores are strictly within (0, 1)
+EPSILON = 0.0001
+
+
+def _clamp_score(score: float) -> float:
+    """Clamp score to be strictly between 0 and 1 (exclusive)."""
+    score = max(0.0, min(1.0, score))
+    if score <= 0.0:
+        return EPSILON
+    if score >= 1.0:
+        return 1.0 - EPSILON
+    return score
 
 
 # ---------------------------------------------------------------------------
@@ -98,9 +111,10 @@ def _duplicate_fraction(data: Dataset) -> float:
 def grade_task_1(current: Dataset, ground_truth: Dataset) -> float:
     """
     Simple cell-accuracy grader.
-    Score = fraction of cells matching ground truth (0.0–1.0).
+    Score = fraction of cells matching ground truth, clamped to (0, 1).
     """
-    return round(_cell_accuracy(current, ground_truth), 4)
+    score = _cell_accuracy(current, ground_truth)
+    return round(_clamp_score(score), 4)
 
 
 # ---------------------------------------------------------------------------
@@ -157,7 +171,7 @@ def grade_task_2(current: Dataset, ground_truth: Dataset) -> float:
     acc = _cell_accuracy(deduped, ground_truth)
 
     score = 0.40 * acc + 0.30 * dup_score + 0.30 * fill_score
-    return round(min(1.0, max(0.0, score)), 4)
+    return round(_clamp_score(score), 4)
 
 
 # ---------------------------------------------------------------------------
@@ -253,7 +267,7 @@ def grade_task_3(current: Dataset, ground_truth: Dataset) -> float:
     dup_score = 1.0 if len(current) == 0 else max(0.0, 1.0 - (dups / len(current)))
 
     score = 0.30 * acc + 0.25 * ref_score + 0.25 * logic_score + 0.20 * dup_score
-    return round(min(1.0, max(0.0, score)), 4)
+    return round(_clamp_score(score), 4)
 
 
 # ---------------------------------------------------------------------------
