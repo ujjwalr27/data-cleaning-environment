@@ -124,17 +124,15 @@ pip install git+https://huggingface.co/spaces/<your-username>/data-cleaning-env
 ### Run Locally (without Docker)
 
 ```bash
-cd "open env hackathon/data_cleaning_env"
 pip install -e .
-uvicorn data_cleaning_env.server.app:app --host 0.0.0.0 --port 8000
+uvicorn data_cleaning_env.server.app:app --host 0.0.0.0 --port 7860
 ```
 
 ### Run with Docker
 
 ```bash
-cd "open env hackathon/data_cleaning_env"
-docker build -f server/Dockerfile -t data-cleaning-env .
-docker run -p 8000:8000 data-cleaning-env
+docker build -t data-cleaning-env .
+docker run -p 7860:7860 data-cleaning-env
 ```
 
 ### Interact
@@ -165,8 +163,7 @@ with DataCleaningEnv(base_url="http://localhost:8000").sync() as env:
 ### Run Baseline
 
 ```bash
-cd "open env hackathon/data_cleaning_env"
-OPENAI_API_KEY=<your-key> python baseline/inference.py --model gpt-4o-mini
+HF_TOKEN=<your-hf-token> python inference.py
 ```
 
 ---
@@ -194,17 +191,18 @@ data_cleaning_env/
 ├── client.py             # EnvClient (typed HTTP client)
 ├── datasets.py           # Deterministic dirty+ground-truth datasets
 ├── graders.py            # Task-specific grader functions
+├── inference.py          # OpenAI API baseline inference script
 ├── openenv.yaml          # Environment manifest
 ├── pyproject.toml        # Package metadata & dependencies
+├── Dockerfile            # Container image for HF Spaces
 ├── README.md             # This file
-├── baseline/
-│   └── inference.py      # OpenAI API baseline script
-└── server/
-    ├── __init__.py
-    ├── environment.py    # Core environment logic (reset/step/state)
-    ├── app.py            # FastAPI application
-    ├── requirements.txt  # Docker dependencies
-    └── Dockerfile        # Container image
+├── server/
+│   ├── __init__.py
+│   ├── environment.py    # Core environment logic (reset/step/state)
+│   ├── app.py            # FastAPI application
+│   └── requirements.txt  # Docker dependencies
+└── tests/
+    └── test_environment.py
 ```
 
 ---
@@ -216,9 +214,9 @@ data_cleaning_env/
 openenv validate
 
 # Docker build & health check
-docker build -f server/Dockerfile -t data-cleaning-env .
-docker run -p 8000:8000 data-cleaning-env &
-curl http://localhost:8000/health
+docker build -t data-cleaning-env .
+docker run -p 7860:7860 data-cleaning-env &
+curl http://localhost:7860/health
 
 # Run tests
 pytest tests/ -v

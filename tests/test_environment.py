@@ -71,7 +71,7 @@ class TestGraders:
     def test_task1_perfect_score(self):
         _, gt, _, _ = generate_task_1()
         score = grade_task_1(gt, gt)
-        assert score == 1.0
+        assert score >= 0.99  # grader clamps to 1.0 - EPSILON = 0.99
 
     def test_task1_dirty_score_less_than_one(self):
         dirty, gt, _, _ = generate_task_1()

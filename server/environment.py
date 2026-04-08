@@ -199,7 +199,7 @@ class DataCleaningEnvironment(Environment):
                 quality_score=_clamp_reward(_compute_quality_score(self._current_data, self._ground_truth, self._task_id)),
                 message="Episode is already done. Call reset() to start a new episode.",
                 done=True,
-                reward=_clamp_reward(0.0),
+                reward=0.0,
             )
 
         prev_quality = _compute_quality_score(self._current_data, self._ground_truth, self._task_id)
@@ -212,10 +212,13 @@ class DataCleaningEnvironment(Environment):
         if act == ActionType.SUBMIT:
             self._done = True
             final_quality = prev_quality
-            reward = final_quality * 0.5  # submit bonus
+            # Efficiency bonus: reward solving in fewer steps
+            steps_used_ratio = self._state.step_count / max(self._state.max_steps, 1)
+            efficiency_bonus = 0.1 * max(0.0, 1.0 - steps_used_ratio)
+            reward = final_quality * 0.5 + efficiency_bonus  # submit bonus + efficiency
             message = (
                 f"Submitted! Final quality score: {final_quality:.4f}. "
-                f"Submit bonus reward: {reward:.4f}."
+                f"Submit bonus reward: {reward:.4f} (efficiency bonus: {efficiency_bonus:.4f})."
             )
 
         elif act in (ActionType.FIX_VALUE, ActionType.FILL_MISSING, ActionType.FIX_TYPE):
@@ -278,8 +281,8 @@ class DataCleaningEnvironment(Environment):
         current_quality = _clamp_reward(_compute_quality_score(self._current_data, self._ground_truth, self._task_id))
         profile = _compute_data_profile(self._current_data, self._col_names, self._col_types)
 
-        # Clamp reward to strictly within (0, 1) as required by OpenEnv spec
-        clamped_reward = _clamp_reward(reward)
+        # Return raw signed reward for meaningful penalty signals
+        rounded_reward = round(reward, 4)
 
         return DataCleaningObservation(
             current_data=copy.deepcopy(self._current_data),
@@ -289,7 +292,7 @@ class DataCleaningEnvironment(Environment):
             quality_score=current_quality,
             message=message,
             done=self._done,
-            reward=clamped_reward,
+            reward=rounded_reward,
         )
 
     @property

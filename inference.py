@@ -244,7 +244,7 @@ def run_task(env: EnvClient, task_id: int) -> tuple[bool, int, List[float], floa
                 action = {"action_type": "submit"}
                 step_count += 1
                 clamped_r = clamp_score(0.0)
-                print(f"[STEP] step={step_count} action=submit() reward={clamped_r:.2f} done=true error={error_msg}", flush=True)
+                print(f"[STEP] step={step_count} action=submit() reward={clamped_r:.3f} done=true error={error_msg}", flush=True)
                 rewards.append(clamped_r)
                 break
             
@@ -282,7 +282,7 @@ def run_task(env: EnvClient, task_id: int) -> tuple[bool, int, List[float], floa
             else:
                 error_str = "null"
             action_str = format_action(action)
-            print(f"[STEP] step={step_count} action={action_str} reward={reward:.2f} done={done_str} error={error_str}", flush=True)
+            print(f"[STEP] step={step_count} action={action_str} reward={reward:.3f} done={done_str} error={error_str}", flush=True)
         
         # Determine success (quality > 0.5 is a reasonable threshold)
         success = quality_score >= 0.5
@@ -308,8 +308,8 @@ def main():
         if not wait_for_env(env, max_retries=30, delay=10):
             r = clamp_score(0.0)
             print(f"[START] task=all env=data-cleaning model={MODEL_NAME}", flush=True)
-            print(f"[STEP] step=1 action=none() reward={r:.2f} done=true error=Environment_not_available", flush=True)
-            print(f"[END] success=false steps=1 score={r:.2f} rewards={r:.2f}", flush=True)
+            print(f"[STEP] step=1 action=none() reward={r:.3f} done=true error=Environment_not_available", flush=True)
+            print(f"[END] success=false steps=1 score={r:.3f} rewards={r:.3f}", flush=True)
             sys.exit(1)
         
         # Run all 3 tasks
@@ -324,15 +324,15 @@ def main():
             
             # [END] line (required format) - rewards already clamped in run_task
             success_str = "true" if success else "false"
-            rewards_str = ",".join(f"{r:.2f}" for r in rewards) if rewards else f"{clamp_score(0.0):.2f}"
-            print(f"[END] success={success_str} steps={steps} score={score:.2f} rewards={rewards_str}", flush=True)
+            rewards_str = ",".join(f"{r:.3f}" for r in rewards) if rewards else f"{clamp_score(0.0):.3f}"
+            print(f"[END] success={success_str} steps={steps} score={score:.3f} rewards={rewards_str}", flush=True)
     
     except Exception as e:
         err_msg = str(e).replace('\n', ' ').replace('\r', '').replace(' ', '_')[:50]
         r = clamp_score(0.0)
         print(f"[START] task=all env=data-cleaning model={MODEL_NAME}", flush=True)
-        print(f"[STEP] step=1 action=none() reward={r:.2f} done=true error={err_msg}", flush=True)
-        print(f"[END] success=false steps=1 score={r:.2f} rewards={r:.2f}", flush=True)
+        print(f"[STEP] step=1 action=none() reward={r:.3f} done=true error={err_msg}", flush=True)
+        print(f"[END] success=false steps=1 score={r:.3f} rewards={r:.3f}", flush=True)
         sys.exit(1)
     
     finally:

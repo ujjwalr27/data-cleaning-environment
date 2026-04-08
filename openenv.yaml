@@ -1,4 +1,10 @@
-name: data-cleaning-env
+spec_version: 1
+name: data_cleaning_env
+type: space
+runtime: fastapi
+app: server.app:app
+port: 7860
+
 description: >
   A real-world OpenEnv environment where an AI agent must clean tabular datasets.
   The agent receives dirty CSV-like data and applies targeted cleaning actions
@@ -106,7 +112,7 @@ reward:
   description: >
     Per-step reward = Δ quality_score after action + 0.1 bonus for correct fixes.
     Penalty of -0.1 for introducing errors, -0.2 for deleting valid rows, -0.05 for invalid actions.
-    Submit bonus = final_quality * 0.5.
+    Submit bonus = final_quality * 0.5 + efficiency bonus (0.1 * (1 - steps_used/max_steps)).
     Step-limit penalty = -0.3 if max_steps exceeded without submitting.
 
 tags:
