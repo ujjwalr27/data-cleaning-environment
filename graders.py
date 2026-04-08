@@ -12,15 +12,15 @@ from typing import Dict, List, Tuple
 Dataset = List[List[str]]
 
 # Epsilon to ensure scores are strictly within (0, 1)
-EPSILON = 0.0001
+EPSILON = 0.001
 
 
 def _clamp_score(score: float) -> float:
     """Clamp score to be strictly between 0 and 1 (exclusive)."""
     score = max(0.0, min(1.0, score))
-    if score <= 0.0:
+    if score <= EPSILON:
         return EPSILON
-    if score >= 1.0:
+    if score >= 1.0 - EPSILON:
         return 1.0 - EPSILON
     return score
 

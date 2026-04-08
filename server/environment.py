@@ -25,7 +25,7 @@ from data_cleaning_env.graders import grade
 Dataset = List[List[str]]
 
 # Epsilon to ensure rewards are strictly within (0, 1)
-REWARD_EPSILON = 0.0001
+REWARD_EPSILON = 0.001
 
 
 def _clamp_reward(reward: float) -> float:
@@ -33,9 +33,9 @@ def _clamp_reward(reward: float) -> float:
     # First clamp to [0, 1]
     reward = max(0.0, min(1.0, reward))
     # Then ensure strictly within (0, 1)
-    if reward <= 0.0:
+    if reward <= REWARD_EPSILON:
         return REWARD_EPSILON
-    if reward >= 1.0:
+    if reward >= 1.0 - REWARD_EPSILON:
         return 1.0 - REWARD_EPSILON
     return reward
 
@@ -168,7 +168,7 @@ class DataCleaningEnvironment(Environment):
         )
 
         profile = _compute_data_profile(self._current_data, col_names, col_types)
-        quality = _compute_quality_score(self._current_data, ground_truth, task_id)
+        quality = _clamp_reward(_compute_quality_score(self._current_data, ground_truth, task_id))
 
         return DataCleaningObservation(
             current_data=copy.deepcopy(self._current_data),
@@ -196,10 +196,10 @@ class DataCleaningEnvironment(Environment):
                 column_names=self._col_names,
                 column_types=self._col_types,
                 data_profile=_compute_data_profile(self._current_data, self._col_names, self._col_types),
-                quality_score=_compute_quality_score(self._current_data, self._ground_truth, self._task_id),
+                quality_score=_clamp_reward(_compute_quality_score(self._current_data, self._ground_truth, self._task_id)),
                 message="Episode is already done. Call reset() to start a new episode.",
                 done=True,
-                reward=0.0,
+                reward=_clamp_reward(0.0),
             )
 
         prev_quality = _compute_quality_score(self._current_data, self._ground_truth, self._task_id)
@@ -275,7 +275,7 @@ class DataCleaningEnvironment(Environment):
             message += f" [!] Step limit ({self._state.max_steps}) reached without submitting. Penalty applied."
 
         # ---- Recompute observation ----
-        current_quality = _compute_quality_score(self._current_data, self._ground_truth, self._task_id)
+        current_quality = _clamp_reward(_compute_quality_score(self._current_data, self._ground_truth, self._task_id))
         profile = _compute_data_profile(self._current_data, self._col_names, self._col_types)
 
         # Clamp reward to strictly within (0, 1) as required by OpenEnv spec

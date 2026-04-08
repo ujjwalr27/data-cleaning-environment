@@ -18,6 +18,20 @@ from openai import OpenAI
 # Required Environment Variables (per hackathon guidelines)
 # =============================================================================
 
+# Epsilon to ensure scores are strictly within (0, 1)
+EPSILON = 0.001
+
+
+def clamp_score(score: float) -> float:
+    """Clamp score to be strictly between 0 and 1 (exclusive)."""
+    score = max(0.0, min(1.0, score))
+    if score <= EPSILON:
+        return EPSILON
+    if score >= 1.0 - EPSILON:
+        return 1.0 - EPSILON
+    return score
+
+
 # API_BASE_URL: LLM API endpoint (must have default)
 API_BASE_URL = os.getenv("API_BASE_URL", "https://api.openai.com/v1")
 
@@ -229,8 +243,9 @@ def run_task(env: EnvClient, task_id: int) -> tuple[bool, int, List[float]]:
                 error_msg = str(e)
                 action = {"action_type": "submit"}
                 step_count += 1
-                print(f"[STEP] step={step_count} action=submit reward=0.00 done=true error={error_msg}")
-                rewards.append(0.0)
+                clamped_r = clamp_score(0.0)
+                print(f"[STEP] step={step_count} action=submit() reward={clamped_r:.2f} done=true error={error_msg}", flush=True)
+                rewards.append(clamped_r)
                 break
             
             messages.append({"role": "assistant", "content": assistant_content})
@@ -242,6 +257,8 @@ def run_task(env: EnvClient, task_id: int) -> tuple[bool, int, List[float]]:
                 obs = result.get("observation", result)
                 
                 reward = float(result.get("reward", obs.get("reward", 0.0)))
+                # Clamp reward to strictly within (0, 1)
+                reward = clamp_score(reward)
                 done = obs.get("done", False)
                 quality_score = obs.get("quality_score", quality_score)
                 current_data = obs.get("current_data", current_data)
@@ -250,7 +267,7 @@ def run_task(env: EnvClient, task_id: int) -> tuple[bool, int, List[float]]:
                 error_msg = None
                 
             except Exception as e:
-                reward = 0.0
+                reward = clamp_score(0.0)
                 done = True
                 error_msg = str(e)
             
@@ -288,9 +305,10 @@ def main():
     try:
         # Wait for environment
         if not wait_for_env(env, max_retries=30, delay=10):
+            r = clamp_score(0.0)
             print(f"[START] task=all env=data-cleaning model={MODEL_NAME}", flush=True)
-            print(f"[STEP] step=0 action=none reward=0.00 done=true error=Environment_not_available", flush=True)
-            print(f"[END] success=false steps=0 rewards=", flush=True)
+            print(f"[STEP] step=1 action=none() reward={r:.2f} done=true error=Environment_not_available", flush=True)
+            print(f"[END] success=false steps=1 rewards={r:.2f}", flush=True)
             sys.exit(1)
         
         # Run all 3 tasks
@@ -303,16 +321,17 @@ def main():
             # Run the task
             success, steps, rewards = run_task(env, task_id)
             
-            # [END] line (required format)
+            # [END] line (required format) - rewards already clamped in run_task
             success_str = "true" if success else "false"
-            rewards_str = ",".join(f"{r:.2f}" for r in rewards) if rewards else ""
+            rewards_str = ",".join(f"{r:.2f}" for r in rewards) if rewards else f"{clamp_score(0.0):.2f}"
             print(f"[END] success={success_str} steps={steps} rewards={rewards_str}", flush=True)
     
     except Exception as e:
         err_msg = str(e).replace('\n', ' ').replace('\r', '').replace(' ', '_')[:50]
+        r = clamp_score(0.0)
         print(f"[START] task=all env=data-cleaning model={MODEL_NAME}", flush=True)
-        print(f"[STEP] step=0 action=none reward=0.00 done=true error={err_msg}", flush=True)
-        print(f"[END] success=false steps=0 rewards=", flush=True)
+        print(f"[STEP] step=1 action=none() reward={r:.2f} done=true error={err_msg}", flush=True)
+        print(f"[END] success=false steps=1 rewards={r:.2f}", flush=True)
         sys.exit(1)
     
     finally:
