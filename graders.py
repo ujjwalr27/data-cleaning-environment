@@ -11,8 +11,8 @@ from typing import Dict, List, Tuple
 
 Dataset = List[List[str]]
 
-# Epsilon to ensure scores are strictly within (0, 1)
-EPSILON = 0.001
+# Epsilon to ensure scores are strictly within (0, 1) - must be >= 0.01 for 2-decimal formatting
+EPSILON = 0.01
 
 
 def _clamp_score(score: float) -> float:

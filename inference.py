@@ -18,8 +18,8 @@ from openai import OpenAI
 # Required Environment Variables (per hackathon guidelines)
 # =============================================================================
 
-# Epsilon to ensure scores are strictly within (0, 1)
-EPSILON = 0.001
+# Epsilon to ensure scores are strictly within (0, 1) and visible at 2 decimal places
+EPSILON = 0.01
 
 
 def clamp_score(score: float) -> float:

@@ -93,7 +93,7 @@ observation_space:
     description: Per-column stats (null_count, type_error_count) plus __duplicates__
   quality_score:
     type: float
-    description: Current data quality 0.0–1.0 (task-specific grader)
+    description: Current data quality strictly between 0 and 1 (exclusive)
   message:
     type: str
     description: Human-readable feedback on the last action

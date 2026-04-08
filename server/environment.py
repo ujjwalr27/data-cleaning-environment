@@ -24,8 +24,8 @@ from data_cleaning_env.graders import grade
 
 Dataset = List[List[str]]
 
-# Epsilon to ensure rewards are strictly within (0, 1)
-REWARD_EPSILON = 0.001
+# Epsilon to ensure rewards are strictly within (0, 1) - must be >= 0.01 for 2-decimal formatting
+REWARD_EPSILON = 0.01
 
 
 def _clamp_reward(reward: float) -> float:
