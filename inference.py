@@ -32,6 +32,13 @@ def clamp_score(score: float) -> float:
     return score
 
 
+# Max steps per task and max possible reward per step
+# Used to normalize task score into [0, 1]
+MAX_STEPS_PER_TASK = 30
+_MAX_REWARD_PER_STEP = 1.0  # max a single step can yield after clamping
+MAX_TOTAL_REWARD = MAX_STEPS_PER_TASK * _MAX_REWARD_PER_STEP
+
+
 # API_BASE_URL: LLM API endpoint (must have default)
 API_BASE_URL = os.getenv("API_BASE_URL", "https://api.openai.com/v1")
 
@@ -217,7 +224,7 @@ def run_task(env: EnvClient, task_id: int) -> tuple[bool, int, List[float], floa
         
         messages = [{"role": "system", "content": SYSTEM_PROMPT}]
         
-        while not done and step_count < 30:
+        while not done and step_count < MAX_STEPS_PER_TASK:
             # Build a compact user message — only send rows with issues, not the full dataset
             user_msg = f"Dataset state (step {step_count}, {len(current_data)} rows):\n"
             user_msg += f"Columns: {column_names}\nExpected types: {column_types}\n"
@@ -340,8 +347,8 @@ def run_task(env: EnvClient, task_id: int) -> tuple[bool, int, List[float], floa
                 obs = result.get("observation", result)
                 
                 reward = float(result.get("reward", obs.get("reward", 0.0)))
-                # Clamp reward to strictly within (0, 1) — validator rejects 0.0 and 1.0
-                reward = clamp_score(reward)
+                # Clamp individual rewards to [0, 1] range
+                reward = max(0.0, min(1.0, reward))
                 done = obs.get("done", False)
                 quality_score = obs.get("quality_score", quality_score)
                 current_data = obs.get("current_data", current_data)
@@ -350,7 +357,7 @@ def run_task(env: EnvClient, task_id: int) -> tuple[bool, int, List[float], floa
                 error_msg = None
                 
             except Exception as e:
-                reward = clamp_score(0.0)
+                reward = 0.0  # failed step, zero reward
                 done = True
                 error_msg = str(e)
             
@@ -374,7 +381,11 @@ def run_task(env: EnvClient, task_id: int) -> tuple[bool, int, List[float], floa
         error_msg = str(e)
         success = False
     
-    final_score = clamp_score(quality_score)
+    # Compute normalized score: sum(rewards) / MAX_TOTAL_REWARD, clamped to [0, 1]
+    normalized_score = sum(rewards) / MAX_TOTAL_REWARD if MAX_TOTAL_REWARD > 0 else 0.0
+    normalized_score = min(max(normalized_score, 0.0), 1.0)
+    # Ensure strictly in (0, 1) as validator requires
+    final_score = clamp_score(normalized_score)
     return success, step_count, rewards, final_score
 
 
@@ -389,10 +400,11 @@ def main():
     try:
         # Wait for environment
         if not wait_for_env(env, max_retries=30, delay=10):
-            r = clamp_score(0.0)
+            r = 0.0
+            s = clamp_score(0.0)
             print(f"[START] task=unknown env=data-cleaning model={MODEL_NAME}", flush=True)
             print(f"[STEP] step=1 action=submit() reward={r:.2f} done=true error=Environment_not_available", flush=True)
-            print(f"[END] success=false steps=1 rewards={r:.2f}", flush=True)
+            print(f"[END] success=false steps=1 score={s:.3f} rewards={r:.2f}", flush=True)
             sys.exit(1)
         
         # Run all 3 tasks
@@ -405,17 +417,18 @@ def main():
             # Run the task
             success, steps, rewards, score = run_task(env, task_id)
             
-            # [END] line (required format) - rewards already clamped in run_task
+            # [END] line (required format per sample_inference.py)
             success_str = "true" if success else "false"
-            rewards_str = ",".join(f"{r:.2f}" for r in rewards) if rewards else f"{clamp_score(0.0):.2f}"
-            print(f"[END] success={success_str} steps={steps} rewards={rewards_str}", flush=True)
+            rewards_str = ",".join(f"{r:.2f}" for r in rewards) if rewards else "0.00"
+            print(f"[END] success={success_str} steps={steps} score={score:.3f} rewards={rewards_str}", flush=True)
     
     except Exception as e:
         err_msg = str(e).replace('\n', ' ').replace('\r', '').replace(' ', '_')[:50]
-        r = clamp_score(0.0)
+        r = 0.0
+        s = clamp_score(0.0)
         print(f"[START] task=unknown env=data-cleaning model={MODEL_NAME}", flush=True)
         print(f"[STEP] step=1 action=submit() reward={r:.2f} done=true error={err_msg}", flush=True)
-        print(f"[END] success=false steps=1 rewards={r:.2f}", flush=True)
+        print(f"[END] success=false steps=1 score={s:.3f} rewards={r:.2f}", flush=True)
         sys.exit(1)
     
     finally:
