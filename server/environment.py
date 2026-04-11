@@ -180,7 +180,7 @@ class DataCleaningEnvironment(Environment):
                     f"{len(col_names)} columns. Starting quality score: {quality:.4f}. "
                     f"Max steps: {TASK_MAX_STEPS[task_id]}.",
             done=False,
-            reward=None,
+            reward=REWARD_EPSILON,  # strictly > 0 (validator rejects None and 0.0)
         )
 
     def step(
@@ -199,7 +199,7 @@ class DataCleaningEnvironment(Environment):
                 quality_score=_clamp_reward(_compute_quality_score(self._current_data, self._ground_truth, self._task_id)),
                 message="Episode is already done. Call reset() to start a new episode.",
                 done=True,
-                reward=0.0,
+                reward=REWARD_EPSILON,  # strictly > 0 (validator rejects 0.0)
             )
 
         prev_quality = _compute_quality_score(self._current_data, self._ground_truth, self._task_id)
