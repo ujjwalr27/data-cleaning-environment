@@ -301,8 +301,8 @@ def run_task(env: EnvClient, task_id: int) -> tuple[bool, int, List[float], floa
                 obs = result.get("observation", result)
                 
                 reward = float(result.get("reward", obs.get("reward", 0.0)))
-                # Clamp reward to [0, 1] for output format compliance
-                reward = max(0.0, min(1.0, reward))
+                # Clamp reward to strictly within (0, 1) — validator rejects 0.0 and 1.0
+                reward = clamp_score(reward)
                 done = obs.get("done", False)
                 quality_score = obs.get("quality_score", quality_score)
                 current_data = obs.get("current_data", current_data)
