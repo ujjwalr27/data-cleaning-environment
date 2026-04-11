@@ -295,8 +295,8 @@ class DataCleaningEnvironment(Environment):
             reward=rounded_reward,
         )
 
-    @property
     def state(self) -> DataCleaningState:
+        """Return current episode state (OpenEnv spec: must be a callable method)."""
         return self._state
 
     # ------------------------------------------------------------------

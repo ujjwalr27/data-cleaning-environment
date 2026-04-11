@@ -7,16 +7,25 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
   PYTHONUNBUFFERED=1 \
   PYTHONPATH=/app
 
-# Install dependencies
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends gcc \
+  && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements first for better caching
 COPY server/requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip && \
   pip install --no-cache-dir -r requirements.txt
 
-# Copy all env files (they're at repo root on HF)
+# Copy all env files into the package directory
 COPY . /app/data_cleaning_env
 
+# Install the package itself so imports work
+COPY pyproject.toml /app/data_cleaning_env/pyproject.toml
+RUN pip install --no-cache-dir -e /app/data_cleaning_env
+
 # HF Spaces requires non-root user
-RUN useradd -m -u 1000 appuser
+RUN useradd -m -u 1000 appuser && \
+  chown -R appuser:appuser /app
 USER 1000
 
 # HF Spaces requires port 7860

@@ -2,7 +2,7 @@ spec_version: 1
 name: data_cleaning_env
 type: space
 runtime: fastapi
-app: server.app:app
+app: data_cleaning_env.server.app:app
 port: 7860
 
 description: >

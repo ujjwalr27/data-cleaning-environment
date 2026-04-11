@@ -218,14 +218,58 @@ def run_task(env: EnvClient, task_id: int) -> tuple[bool, int, List[float], floa
         
         messages = [{"role": "system", "content": SYSTEM_PROMPT}]
         
-        while not done and step_count < 500:
-            # Build user message
-            user_msg = f"Current dataset state (step {step_count}):\n\nColumns: {column_names}\nTypes: {column_types}\n\nData:\n"
-            for i, row in enumerate(current_data):
-                user_msg += f"  Row {i}: {row}\n"
-            user_msg += f"\nData profile: {json.dumps(data_profile, indent=2)}"
-            user_msg += f"\nCurrent quality score: {quality_score:.4f}"
-            user_msg += f"\nLast message: {message}"
+        while not done and step_count < 30:
+            # Build a compact user message — only send rows with issues, not the full dataset
+            user_msg = f"Dataset state (step {step_count}, {len(current_data)} rows):\n"
+            user_msg += f"Columns: {column_names}\nExpected types: {column_types}\n"
+            user_msg += f"Quality score: {quality_score:.4f}\n"
+
+            # Identify rows with potential issues from data_profile
+            flagged_rows = set()
+            for col_name, stats in data_profile.items():
+                if col_name == "__duplicates__":
+                    continue
+                if isinstance(stats, dict):
+                    if stats.get("null_count", 0) > 0 or stats.get("type_error_count", 0) > 0:
+                        # Flag all rows for this column (we'll check below)
+                        col_idx = column_names.index(col_name) if col_name in column_names else -1
+                        if col_idx >= 0:
+                            for r_idx, row in enumerate(current_data):
+                                if col_idx < len(row):
+                                    cell = row[col_idx].strip() if row[col_idx] else ""
+                                    if cell == "":
+                                        flagged_rows.add(r_idx)
+
+            # Also flag based on data profile issues
+            dup_count = data_profile.get("__duplicates__", 0)
+
+            # On first step, or if few flagged rows, show all data (compact)
+            if step_count == 0 or len(flagged_rows) == 0:
+                user_msg += "\nAll rows:\n"
+                for i, row in enumerate(current_data):
+                    user_msg += f"  Row {i}: {row}\n"
+            else:
+                user_msg += f"\nRows with potential issues ({len(flagged_rows)} flagged):\n"
+                for i in sorted(flagged_rows):
+                    if i < len(current_data):
+                        user_msg += f"  Row {i}: {current_data[i]}\n"
+                # Show a few clean rows for context (first 3 not flagged)
+                clean_shown = 0
+                for i, row in enumerate(current_data):
+                    if i not in flagged_rows and clean_shown < 3:
+                        user_msg += f"  Row {i} (clean): {row}\n"
+                        clean_shown += 1
+
+            user_msg += f"\nData profile summary: duplicates={dup_count}"
+            for col_name, stats in data_profile.items():
+                if col_name == "__duplicates__" or not isinstance(stats, dict):
+                    continue
+                nulls = stats.get("null_count", 0)
+                errs = stats.get("type_error_count", 0)
+                if nulls > 0 or errs > 0:
+                    user_msg += f", {col_name}(nulls={nulls},type_errors={errs})"
+
+            user_msg += f"\nLast feedback: {message}"
             user_msg += "\n\nWhat action will you take? Respond with JSON only."
             
             messages.append({"role": "user", "content": user_msg})
@@ -244,7 +288,7 @@ def run_task(env: EnvClient, task_id: int) -> tuple[bool, int, List[float], floa
                 action = {"action_type": "submit"}
                 step_count += 1
                 clamped_r = clamp_score(0.0)
-                print(f"[STEP] step={step_count} action=submit() reward={clamped_r:.3f} done=true error={error_msg}", flush=True)
+                print(f"[STEP] step={step_count} action=submit() reward={clamped_r:.2f} done=true error={error_msg}", flush=True)
                 rewards.append(clamped_r)
                 break
             
@@ -257,8 +301,8 @@ def run_task(env: EnvClient, task_id: int) -> tuple[bool, int, List[float], floa
                 obs = result.get("observation", result)
                 
                 reward = float(result.get("reward", obs.get("reward", 0.0)))
-                # Clamp reward to strictly within (0, 1)
-                reward = clamp_score(reward)
+                # Clamp reward to [0, 1] for output format compliance
+                reward = max(0.0, min(1.0, reward))
                 done = obs.get("done", False)
                 quality_score = obs.get("quality_score", quality_score)
                 current_data = obs.get("current_data", current_data)
@@ -282,7 +326,7 @@ def run_task(env: EnvClient, task_id: int) -> tuple[bool, int, List[float], floa
             else:
                 error_str = "null"
             action_str = format_action(action)
-            print(f"[STEP] step={step_count} action={action_str} reward={reward:.3f} done={done_str} error={error_str}", flush=True)
+            print(f"[STEP] step={step_count} action={action_str} reward={reward:.2f} done={done_str} error={error_str}", flush=True)
         
         # Determine success (quality > 0.5 is a reasonable threshold)
         success = quality_score >= 0.5
@@ -307,9 +351,9 @@ def main():
         # Wait for environment
         if not wait_for_env(env, max_retries=30, delay=10):
             r = clamp_score(0.0)
-            print(f"[START] task=all env=data-cleaning model={MODEL_NAME}", flush=True)
-            print(f"[STEP] step=1 action=none() reward={r:.3f} done=true error=Environment_not_available", flush=True)
-            print(f"[END] success=false steps=1 score={r:.3f} rewards={r:.3f}", flush=True)
+            print(f"[START] task=unknown env=data-cleaning model={MODEL_NAME}", flush=True)
+            print(f"[STEP] step=1 action=submit() reward={r:.2f} done=true error=Environment_not_available", flush=True)
+            print(f"[END] success=false steps=1 rewards={r:.2f}", flush=True)
             sys.exit(1)
         
         # Run all 3 tasks
@@ -324,15 +368,15 @@ def main():
             
             # [END] line (required format) - rewards already clamped in run_task
             success_str = "true" if success else "false"
-            rewards_str = ",".join(f"{r:.3f}" for r in rewards) if rewards else f"{clamp_score(0.0):.3f}"
-            print(f"[END] success={success_str} steps={steps} score={score:.3f} rewards={rewards_str}", flush=True)
+            rewards_str = ",".join(f"{r:.2f}" for r in rewards) if rewards else f"{clamp_score(0.0):.2f}"
+            print(f"[END] success={success_str} steps={steps} rewards={rewards_str}", flush=True)
     
     except Exception as e:
         err_msg = str(e).replace('\n', ' ').replace('\r', '').replace(' ', '_')[:50]
         r = clamp_score(0.0)
-        print(f"[START] task=all env=data-cleaning model={MODEL_NAME}", flush=True)
-        print(f"[STEP] step=1 action=none() reward={r:.3f} done=true error={err_msg}", flush=True)
-        print(f"[END] success=false steps=1 score={r:.3f} rewards={r:.3f}", flush=True)
+        print(f"[START] task=unknown env=data-cleaning model={MODEL_NAME}", flush=True)
+        print(f"[STEP] step=1 action=submit() reward={r:.2f} done=true error={err_msg}", flush=True)
+        print(f"[END] success=false steps=1 rewards={r:.2f}", flush=True)
         sys.exit(1)
     
     finally:

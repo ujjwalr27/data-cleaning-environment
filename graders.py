@@ -148,22 +148,8 @@ def grade_task_2(current: Dataset, ground_truth: Dataset) -> float:
     dup_score = max(0.0, 1.0 - (actual_dups_remaining / expected_dups))
 
     # 2. Missing value fill (30 pts)
-    missing_cols = {"email": [3, 12], "city": [7], "purchase_amount": [10]}  # row indices with missing values
-    filled_count = 0
-    total_missing = 4  # 4 missing values injected (rows 0=phone fmt, 3=email, 7=city, 10=amount, 12=email)
-    # Check against ground truth rows (using row index within deduped)
-    gt_by_id = {row[0]: row for row in ground_truth}
-    filled = 0
-    total_fillable = 4  # email r3, city r7, amount r10, email r12
-    for row in deduped:
-        if row[0] in gt_by_id:
-            gt_row = gt_by_id[row[0]]
-            # If any previously-empty cell is now non-empty and matches gt
-            for c in range(len(row)):
-                if c < len(gt_row) and row[c].strip() != "" and gt_row[c].strip() != "" and row[c].strip() == gt_row[c].strip():
-                    pass  # counted below in cell accuracy
-
-    # Simpler: count missing cells remaining in deduped
+    # Count missing cells remaining in deduped
+    total_fillable = 4  # 4 missing values injected
     missing_remaining = sum(1 for row in deduped for cell in row if cell.strip() == "")
     fill_score = max(0.0, 1.0 - (missing_remaining / max(total_fillable, 1)))
 
@@ -221,7 +207,7 @@ def grade_task_3(current: Dataset, ground_truth: Dataset) -> float:
             total_logic_checks += 8
             continue
 
-        total_logic_checks += 5
+        total_logic_checks += 6  # 6 checks per valid row
 
         # salary > 0
         if not _is_positive_float(row[3]) or float(row[3]) <= 0:
@@ -245,13 +231,9 @@ def grade_task_3(current: Dataset, ground_truth: Dataset) -> float:
         if not row[1].strip():
             logic_errors += 1
 
-        # valid email
-        if row[6].strip() and not _is_valid_email(row[6]):
+        # valid email (always checked as 1 of the 6)
+        if not row[6].strip() or not _is_valid_email(row[6]):
             logic_errors += 1
-            total_logic_checks += 1
-        elif not row[6].strip():
-            logic_errors += 1
-            total_logic_checks += 1
 
     logic_score = max(0.0, 1.0 - (logic_errors / max(total_logic_checks, 1)))
 
