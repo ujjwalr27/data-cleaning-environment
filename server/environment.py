@@ -281,8 +281,8 @@ class DataCleaningEnvironment(Environment):
         current_quality = _clamp_reward(_compute_quality_score(self._current_data, self._ground_truth, self._task_id))
         profile = _compute_data_profile(self._current_data, self._col_names, self._col_types)
 
-        # Return raw signed reward for meaningful penalty signals
-        rounded_reward = round(reward, 4)
+        # Clamp reward to strictly within (0, 1) — validator rejects values outside this range
+        clamped_reward = round(_clamp_reward(reward), 4)
 
         return DataCleaningObservation(
             current_data=copy.deepcopy(self._current_data),
@@ -292,7 +292,7 @@ class DataCleaningEnvironment(Environment):
             quality_score=current_quality,
             message=message,
             done=self._done,
-            reward=rounded_reward,
+            reward=clamped_reward,
         )
 
     def state(self) -> DataCleaningState:

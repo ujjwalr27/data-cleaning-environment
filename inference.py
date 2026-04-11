@@ -60,33 +60,32 @@ client = OpenAI(
 # System Prompt
 # =============================================================================
 
-SYSTEM_PROMPT = """You are an expert data engineer. You will receive a dirty tabular dataset
-and must clean it by issuing actions.
+SYSTEM_PROMPT = """You are an expert data engineer cleaning dirty tabular datasets.
 
-Available actions:
-- fix_value: Fix a cell value (params: row, col, value)
-- fill_missing: Fill an empty cell (params: row, col, value)
-- delete_row: Remove a duplicate or invalid row (params: row)
-- fix_type: Fix a type mismatch (params: row, col, value)
-- submit: Finalize your work (no params needed)
+Available actions (respond with ONE JSON object per turn):
+- fix_value: Fix a cell value. Params: row (int), col (str), value (str)
+- fill_missing: Fill an empty/null cell. Params: row (int), col (str), value (str)  
+- delete_row: Remove a duplicate row. Params: row (int)
+- fix_type: Fix a type mismatch. Params: row (int), col (str), value (str)
+- submit: Finalize your work. No params needed.
 
-Always respond with a valid JSON object in this exact format:
-{
-  "action_type": "<action>",
-  "row": <int or null>,
-  "col": "<column name or null>",
-  "value": "<new value or null>"
-}
+Response format (strict JSON, no markdown):
+{"action_type": "<action>", "row": <int or null>, "col": "<column_name or null>", "value": "<new_value or null>"}
 
-Guidelines:
-- Dates should be in YYYY-MM-DD format
-- Emails must contain exactly one @ and a valid domain
-- Ages/IDs/counts must be positive integers
-- Salaries must be positive floats
-- Status values: active, inactive, on_leave
-- Departments: Engineering, Marketing, Sales, HR, Finance, Operations
-- Delete only clearly duplicate rows
-- Call submit when you believe the data is clean or you're running low on steps"""
+Data rules:
+- Dates: YYYY-MM-DD format, valid month (01-12), valid day (01-31), year 1900-2030
+- Emails: must contain exactly one @ with a valid domain (e.g., user@domain.com)
+- Integers (age, id): must be positive whole numbers
+- Floats (salary, amount): must be positive numbers
+- Status: only 'active', 'inactive', or 'on_leave' (lowercase)
+- Departments: only 'Engineering', 'Marketing', 'Sales', 'HR', 'Finance', 'Operations'
+
+Strategy for maximum score:
+1. First scan the data profile for columns with null_count > 0 or type_error_count > 0
+2. Fix type errors and fill missing values first (biggest quality impact)
+3. Then delete exact duplicate rows
+4. Submit once the data profile shows 0 errors across all columns
+5. Don't waste steps on cells that are already correct"""
 
 
 # =============================================================================
@@ -224,43 +223,78 @@ def run_task(env: EnvClient, task_id: int) -> tuple[bool, int, List[float], floa
             user_msg += f"Columns: {column_names}\nExpected types: {column_types}\n"
             user_msg += f"Quality score: {quality_score:.4f}\n"
 
-            # Identify rows with potential issues from data_profile
+            # Identify rows with potential issues using actual type checks
             flagged_rows = set()
-            for col_name, stats in data_profile.items():
-                if col_name == "__duplicates__":
-                    continue
-                if isinstance(stats, dict):
-                    if stats.get("null_count", 0) > 0 or stats.get("type_error_count", 0) > 0:
-                        # Flag all rows for this column (we'll check below)
-                        col_idx = column_names.index(col_name) if col_name in column_names else -1
-                        if col_idx >= 0:
-                            for r_idx, row in enumerate(current_data):
-                                if col_idx < len(row):
-                                    cell = row[col_idx].strip() if row[col_idx] else ""
-                                    if cell == "":
-                                        flagged_rows.add(r_idx)
+            for r_idx, row in enumerate(current_data):
+                for c_idx, col_name in enumerate(column_names):
+                    if c_idx >= len(row):
+                        flagged_rows.add(r_idx)
+                        continue
+                    cell = row[c_idx].strip() if row[c_idx] else ""
+                    ctype = column_types[c_idx] if c_idx < len(column_types) else "str"
+                    # Check for empty cells
+                    if cell == "":
+                        flagged_rows.add(r_idx)
+                        continue
+                    # Check type errors
+                    if ctype == "int":
+                        try:
+                            v = int(cell)
+                            if v < 0:
+                                flagged_rows.add(r_idx)
+                        except ValueError:
+                            flagged_rows.add(r_idx)
+                    elif ctype == "float":
+                        try:
+                            v = float(cell)
+                            if v <= 0 or v > 500000:
+                                flagged_rows.add(r_idx)
+                        except ValueError:
+                            flagged_rows.add(r_idx)
+                    elif ctype == "email":
+                        import re
+                        if not re.match(r"^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$", cell):
+                            flagged_rows.add(r_idx)
+                    elif ctype == "date":
+                        import re
+                        if not re.match(r"^\d{4}-\d{2}-\d{2}$", cell):
+                            flagged_rows.add(r_idx)
+                        else:
+                            parts = cell.split("-")
+                            m, d = int(parts[1]), int(parts[2])
+                            yr = int(parts[0])
+                            if m < 1 or m > 12 or d < 1 or d > 31 or yr < 1900 or yr > 2030:
+                                flagged_rows.add(r_idx)
 
-            # Also flag based on data profile issues
+            # Check for duplicates
             dup_count = data_profile.get("__duplicates__", 0)
+            if dup_count > 0:
+                seen_rows = {}
+                for r_idx, row in enumerate(current_data):
+                    key = tuple(row)
+                    if key in seen_rows:
+                        flagged_rows.add(r_idx)  # flag the duplicate (not the first)
+                    else:
+                        seen_rows[key] = r_idx
 
-            # On first step, or if few flagged rows, show all data (compact)
+            # On first step, show all data; after that, only flagged rows
             if step_count == 0 or len(flagged_rows) == 0:
                 user_msg += "\nAll rows:\n"
                 for i, row in enumerate(current_data):
                     user_msg += f"  Row {i}: {row}\n"
             else:
-                user_msg += f"\nRows with potential issues ({len(flagged_rows)} flagged):\n"
+                user_msg += f"\nRows with issues ({len(flagged_rows)} flagged):\n"
                 for i in sorted(flagged_rows):
                     if i < len(current_data):
                         user_msg += f"  Row {i}: {current_data[i]}\n"
-                # Show a few clean rows for context (first 3 not flagged)
+                # Show 2 clean rows for reference
                 clean_shown = 0
                 for i, row in enumerate(current_data):
-                    if i not in flagged_rows and clean_shown < 3:
-                        user_msg += f"  Row {i} (clean): {row}\n"
+                    if i not in flagged_rows and clean_shown < 2:
+                        user_msg += f"  Row {i} (clean ref): {row}\n"
                         clean_shown += 1
 
-            user_msg += f"\nData profile summary: duplicates={dup_count}"
+            user_msg += f"\nProfile: duplicates={dup_count}"
             for col_name, stats in data_profile.items():
                 if col_name == "__duplicates__" or not isinstance(stats, dict):
                     continue
@@ -269,8 +303,13 @@ def run_task(env: EnvClient, task_id: int) -> tuple[bool, int, List[float], floa
                 if nulls > 0 or errs > 0:
                     user_msg += f", {col_name}(nulls={nulls},type_errors={errs})"
 
-            user_msg += f"\nLast feedback: {message}"
-            user_msg += "\n\nWhat action will you take? Respond with JSON only."
+            user_msg += f"\nFeedback: {message}"
+            user_msg += f"\nSteps remaining: {30 - step_count}"
+            user_msg += "\n\nRespond with ONE JSON action."
+
+            # Sliding window: keep system prompt + last 4 exchanges to avoid context overflow
+            if len(messages) > 9:  # system + 4*(user+assistant) = 9
+                messages = [messages[0]] + messages[-8:]
             
             messages.append({"role": "user", "content": user_msg})
             
