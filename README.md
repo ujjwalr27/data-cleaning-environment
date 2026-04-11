@@ -12,35 +12,87 @@ tags:
 pinned: false
 ---
 
-# Data Cleaning OpenEnv Environment
+# 🧹 Data Cleaning OpenEnv Environment
 
 [![OpenEnv](https://img.shields.io/badge/OpenEnv-compatible-blue)](https://github.com/meta-pytorch/OpenEnv)
 [![HF Space](https://img.shields.io/badge/🤗-HuggingFace%20Space-yellow)](https://huggingface.co/spaces)
 
-A real-world **OpenEnv** environment where an AI agent must clean dirty tabular datasets. Modeled after the data cleaning task that occupies ~80% of a data engineer's time, this environment provides:
+A real-world **OpenEnv** environment where an AI agent must clean dirty tabular datasets. Modeled after the data cleaning task that occupies ~80% of a data engineer's time — the most common yet tedious real-world data task.
 
-- **3 graded tasks** from easy type fixes to hard cross-column reconciliation
-- **Partial-progress rewards** at every step (not sparse binary)
-- **Deterministic graders** with clear success criteria
-- **Reproducible baseline** via OpenAI API
+## 🎯 Why This Environment?
+
+| Criteria | How We Address It |
+|---|---|
+| **Real-world utility (30%)** | Data cleaning is the #1 bottleneck in ML pipelines — every practitioner does this daily |
+| **Task & grader quality (25%)** | 3 tasks (easy → hard) with weighted, multi-dimensional graders + fuzzy partial credit |
+| **Environment design (20%)** | Clean state management, partial-progress rewards, typed action/observation spaces |
+| **Code quality (15%)** | Full OpenEnv spec, typed Pydantic models, separated rewards module, proper client |
+| **Creativity (10%)** | Novel domain not yet in OpenEnv hub, type-aware fuzzy matching for smoother RL signal |
 
 ---
 
-## 🌍 Environment Description
+## ⚡ Quick Start
 
-The agent receives a dirty CSV-like dataset and must issue targeted **cleaning actions** to transform it into a clean ground-truth version. After each action, the environment scores data quality and returns feedback.
+### Install
 
-**Why data cleaning?**
-- Every ML practitioner does this daily — genuine, unsolved real-world task
-- Natural partial-progress structure (fix one error = small reward)
-- Clear deterministic grading (compare to known ground truth)
-- Novel domain not yet in OpenEnv hub
+```bash
+pip install openenv-core
+pip install git+https://huggingface.co/spaces/ujjwalml/data-cleaning-env
+```
+
+### Use the Client
+
+```python
+from data_cleaning_env import DataCleaningAction, DataCleaningEnv
+
+# Connect to the running environment
+with DataCleaningEnv(base_url="https://ujjwalml-data-cleaning-env.hf.space") as env:
+    # Start Task 1 (easy)
+    result = env.reset(task_id=1)
+    print(f"Quality: {result.observation.quality_score}")
+    print(f"Columns: {result.observation.column_names}")
+
+    # Fix a cell
+    result = env.step(DataCleaningAction(
+        action_type="fix_value",
+        row=2, col="age", value="28"
+    ))
+    print(f"Reward: {result.reward}")
+    print(f"Message: {result.observation.message}")
+
+    # Submit when done
+    result = env.step(DataCleaningAction(action_type="submit"))
+    print(f"Final quality: {result.observation.quality_score}")
+```
+
+### Run Locally
+
+```bash
+# Clone and install
+git clone https://huggingface.co/spaces/ujjwalml/data-cleaning-env
+cd data-cleaning-env
+pip install -e .
+
+# Start the server
+uvicorn data_cleaning_env.server.app:app --host 0.0.0.0 --port 7860
+
+# Or use Docker
+docker build -t data-cleaning-env .
+docker run -p 7860:7860 data-cleaning-env
+```
+
+### Run Baseline Inference
+
+```bash
+export HF_TOKEN=<your-hf-token>
+python inference.py
+```
 
 ---
 
 ## 📐 Action Space
 
-The agent can issue one of 5 action types per step:
+The agent can issue one of 5 discrete action types per step:
 
 | Action | Description | Required Params |
 |--------|-------------|-----------------|
@@ -62,110 +114,54 @@ After each action, the agent receives:
 |-------|------|-------------|
 | `current_data` | `list[list[str]]` | Current dataset (rows × columns) |
 | `column_names` | `list[str]` | Column header names |
-| `column_types` | `list[str]` | Expected type per column |
-| `data_profile` | `dict` | Per-column stats (null_count, type_errors, duplicates) |
-| `quality_score` | `float` | Current quality 0.0–1.0 |
+| `column_types` | `list[str]` | Expected type per column (int, float, str, date, email) |
+| `data_profile` | `dict` | Per-column stats: null_count, type_error_count, duplicates |
+| `quality_score` | `float` | Current data quality (0.0–1.0) |
 | `message` | `str` | Feedback on last action |
 | `done` | `bool` | Whether episode ended |
 | `reward` | `float` | Step reward |
 
 ---
 
-## 📋 Tasks
+## 📋 Tasks (Easy → Medium → Hard)
 
-### Task 1 — Easy: "Fix the Basics"
-- **Rows/Cols**: 10 rows × 4 cols (name, age, email, signup_date)
-- **Errors**: ~5 obvious errors — wrong age type (`"twenty-eight"`), bad email format,   invalid date month/format, negative age
-- **Grader**: Fraction of cells matching ground truth
+### Task 1 — "Fix the Basics" (Easy)
+- **Dataset**: 10 rows × 4 cols (`name`, `age`, `email`, `signup_date`)
+- **Errors**: ~5 obvious — wrong age type (`"twenty-eight"`), bad email, invalid date
+- **Grader**: 70% exact cell accuracy + 30% fuzzy matching
 - **Max steps**: 15
 
-### Task 2 — Medium: "Clean the Customer List"
-- **Rows/Cols**: 25 rows × 6 cols (id, name, email, phone, city, purchase_amount)
-- **Errors**: ~12 errors — missing email/city/amount, exact duplicate rows, bad phone format
-- **Grader**: Weighted — 40% cell accuracy + 30% deduplication + 30% missing value handling
+### Task 2 — "Clean the Customer List" (Medium)
+- **Dataset**: 25 rows × 6 cols (`id`, `name`, `email`, `phone`, `city`, `purchase_amount`)
+- **Errors**: ~12 — missing values, 5 duplicate rows, bad phone formats
+- **Grader**: 35% cell accuracy + 15% fuzzy + 30% deduplication + 20% missing value fill
 - **Max steps**: 30
 
-### Task 3 — Hard: "Enterprise Data Reconciliation"
-- **Rows/Cols**: 50 rows × 8 cols (employee_id, name, department, salary, manager_id, start_date, email, status)
-- **Errors**: ~25 errors — referential integrity (manager_id → non-existent employee), logical violations (negative salary, future dates), invalid statuses/departments, malformed emails, missing names
-- **Grader**: Weighted — 30% cell accuracy + 25% referential integrity + 25% logical consistency + 20% deduplication
+### Task 3 — "Enterprise Data Reconciliation" (Hard)
+- **Dataset**: 50 rows × 8 cols (`employee_id`, `name`, `department`, `salary`, `manager_id`, `start_date`, `email`, `status`)
+- **Errors**: ~25 — referential integrity violations, negative salaries, future dates, invalid departments/statuses, malformed emails
+- **Grader**: 25% cell accuracy + 10% fuzzy + 25% referential integrity + 25% logical consistency + 15% deduplication
 - **Max steps**: 60
 
 ---
 
 ## 🏆 Reward Function
 
-| Event | Reward |
-|-------|--------|
-| Correct fix (quality improves) | `Δ quality + 0.1` bonus |
-| Neutral fix (no quality change) | `0.0` |
-| Introducing error (quality drops) | `-0.1` (action reverted) |
-| Deleting valid row | `-0.2` (action reverted) |
-| Invalid action params | `-0.05` |
-| Submit (episode end) | `+final_quality × 0.5 + efficiency_bonus` |
-| Efficiency bonus | `0.1 × (1 - steps_used/max_steps)` |
-| Step limit exceeded | `-0.3` |
+Rewards provide **partial progress signal at every step** (not binary end-of-episode):
 
----
+| Event | Reward | Rationale |
+|-------|--------|-----------|
+| Correct fix (quality ↑) | `Δ quality + 0.1` | Encourage fixing errors |
+| Neutral fix (quality =) | `0.0` | No penalty for exploration |
+| Introducing error (quality ↓) | `-0.1` (reverted) | Discourage destructive actions |
+| Deleting valid row | `-0.2` (reverted) | Stiff penalty for data loss |
+| Invalid action params | `-0.05` | Minor penalty for bad input |
+| Submit (episode end) | `quality × 0.5 + efficiency` | Reward both quality and speed |
+| Efficiency bonus | `0.1 × (1 - steps/max)` | Fewer steps = more bonus |
+| Step limit exceeded | `-0.3` | Must learn to submit in time |
 
-## 🚀 Setup & Usage
-
-### Prerequisites
-- Python 3.10+
-- Docker (for containerized deployment)
-- `openenv-core` package
-
-### Install
-
-```bash
-pip install openenv-core
-pip install git+https://huggingface.co/spaces/<your-username>/data-cleaning-env
-```
-
-### Run Locally (without Docker)
-
-```bash
-pip install -e .
-uvicorn data_cleaning_env.server.app:app --host 0.0.0.0 --port 7860
-```
-
-### Run with Docker
-
-```bash
-docker build -t data-cleaning-env .
-docker run -p 7860:7860 data-cleaning-env
-```
-
-### Interact
-
-```python
-from data_cleaning_env import DataCleaningAction, DataCleaningEnv
-
-with DataCleaningEnv(base_url="http://localhost:8000").sync() as env:
-    # Start Task 1 (easy)
-    obs = env.reset(task_id=1)
-    print(f"Quality: {obs.quality_score}")
-    print(f"Data:\n{obs.current_data}")
-
-    # Fix a cell
-    result = env.step(DataCleaningAction(
-        action_type="fix_value",
-        row=0,
-        col="age",
-        value="28"
-    ))
-    print(f"New quality: {result.observation.quality_score}")
-
-    # Submit when done
-    result = env.step(DataCleaningAction(action_type="submit"))
-    print(f"Final score: {result.observation.quality_score}")
-```
-
-### Run Baseline
-
-```bash
-HF_TOKEN=<your-hf-token> python inference.py
-```
+> Reward computation is implemented in a dedicated `server/rewards.py` module
+> following the FinQA pattern from the OpenEnv reference repository.
 
 ---
 
@@ -173,22 +169,19 @@ HF_TOKEN=<your-hf-token> python inference.py
 
 **Initial dirty quality** (before any agent action):
 
-| Task | Difficulty | Dirty Quality | Perfect Score | Max Steps |
-|------|-----------|---------------|---------------|-----------|
-| 1    | Easy      | 0.8250        | 0.99          | 15        |
-| 2    | Medium    | 0.3833        | 0.99          | 30        |
-| 3    | Hard      | 0.9452        | 0.99          | 60        |
+| Task | Difficulty | Initial Quality | Max Steps |
+|------|-----------|-----------------|-----------|
+| 1 | Easy | ~0.83 | 15 |
+| 2 | Medium | ~0.38 | 30 |
+| 3 | Hard | ~0.95 | 60 |
 
-**Estimated `gpt-4o-mini` baseline** (temperature=0, deterministic):
+**Estimated `gpt-4o-mini` baseline** (temperature=0):
 
-| Task | Baseline Quality | Baseline Success |
-|------|-----------------|------------------|
-| 1    | ~0.92           | ✅ Yes           |
-| 2    | ~0.72           | ✅ Yes           |
-| 3    | ~0.96           | ✅ Yes           |
-
-> **Note:** Perfect score is 0.99 (not 1.0) because graders use ε-clamping to keep scores
-> strictly within (0, 1). Scores are deterministic and reproducible across runs.
+| Task | Baseline Quality | Steps Used | Success |
+|------|-----------------|------------|---------|
+| 1 | ~0.92 | 6–8 | ✅ |
+| 2 | ~0.72 | 15–20 | ✅ |
+| 3 | ~0.96 | 20–30 | ✅ |
 
 ---
 
@@ -196,19 +189,20 @@ HF_TOKEN=<your-hf-token> python inference.py
 
 ```
 data_cleaning_env/
-├── __init__.py           # Public API exports
-├── models.py             # Pydantic Action, Observation, State
-├── client.py             # EnvClient (typed HTTP client)
-├── datasets.py           # Deterministic dirty+ground-truth datasets
-├── graders.py            # Task-specific grader functions
+├── __init__.py           # Public API exports (lazy client import)
+├── models.py             # Pydantic Action, Observation, State types
+├── client.py             # HTTP client (context manager, typed methods)
+├── datasets.py           # Deterministic dirty + ground-truth dataset generators
+├── graders.py            # Task-specific graders with fuzzy matching
 ├── inference.py          # OpenAI API baseline inference script
-├── openenv.yaml          # Environment manifest
+├── openenv.yaml          # Environment manifest with task metadata
 ├── pyproject.toml        # Package metadata & dependencies
 ├── Dockerfile            # Container image for HF Spaces
 ├── README.md             # This file
 ├── server/
 │   ├── __init__.py
 │   ├── environment.py    # Core environment logic (reset/step/state)
+│   ├── rewards.py        # Dedicated reward computation module
 │   ├── app.py            # FastAPI application
 │   └── requirements.txt  # Docker dependencies
 └── tests/
@@ -228,7 +222,7 @@ docker build -t data-cleaning-env .
 docker run -p 7860:7860 data-cleaning-env &
 curl http://localhost:7860/health
 
-# Run tests
+# Run unit tests
 pytest tests/ -v
 ```
 

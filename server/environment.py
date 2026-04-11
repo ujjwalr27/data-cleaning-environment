@@ -21,23 +21,17 @@ from data_cleaning_env.models import (
 )
 from data_cleaning_env.datasets import TASK_GENERATORS, TASK_MAX_STEPS, TASK_DESCRIPTIONS
 from data_cleaning_env.graders import grade
+from data_cleaning_env.server.rewards import (
+    clamp_reward,
+    compute_fix_reward,
+    compute_delete_reward,
+    compute_submit_reward,
+    compute_step_limit_penalty,
+    compute_invalid_action_penalty,
+    REWARD_EPSILON,
+)
 
 Dataset = List[List[str]]
-
-# Epsilon to ensure rewards are strictly within (0, 1) - must be >= 0.01 for 2-decimal formatting
-REWARD_EPSILON = 0.01
-
-
-def _clamp_reward(reward: float) -> float:
-    """Clamp reward to be strictly between 0 and 1 (exclusive)."""
-    # First clamp to [0, 1]
-    reward = max(0.0, min(1.0, reward))
-    # Then ensure strictly within (0, 1)
-    if reward <= REWARD_EPSILON:
-        return REWARD_EPSILON
-    if reward >= 1.0 - REWARD_EPSILON:
-        return 1.0 - REWARD_EPSILON
-    return reward
 
 
 def _compute_data_profile(data: Dataset, col_names: List[str], col_types: List[str]) -> Dict[str, Any]:
@@ -168,7 +162,7 @@ class DataCleaningEnvironment(Environment):
         )
 
         profile = _compute_data_profile(self._current_data, col_names, col_types)
-        quality = _clamp_reward(_compute_quality_score(self._current_data, ground_truth, task_id))
+        quality = clamp_reward(_compute_quality_score(self._current_data, ground_truth, task_id))
 
         return DataCleaningObservation(
             current_data=copy.deepcopy(self._current_data),
@@ -180,7 +174,7 @@ class DataCleaningEnvironment(Environment):
                     f"{len(col_names)} columns. Starting quality score: {quality:.4f}. "
                     f"Max steps: {TASK_MAX_STEPS[task_id]}.",
             done=False,
-            reward=REWARD_EPSILON,  # strictly > 0 (validator rejects None and 0.0)
+            reward=None,  # no action taken yet
         )
 
     def step(
@@ -196,10 +190,10 @@ class DataCleaningEnvironment(Environment):
                 column_names=self._col_names,
                 column_types=self._col_types,
                 data_profile=_compute_data_profile(self._current_data, self._col_names, self._col_types),
-                quality_score=_clamp_reward(_compute_quality_score(self._current_data, self._ground_truth, self._task_id)),
+                quality_score=clamp_reward(_compute_quality_score(self._current_data, self._ground_truth, self._task_id)),
                 message="Episode is already done. Call reset() to start a new episode.",
                 done=True,
-                reward=REWARD_EPSILON,  # strictly > 0 (validator rejects 0.0)
+                reward=None,  # episode already done, no new reward
             )
 
         prev_quality = _compute_quality_score(self._current_data, self._ground_truth, self._task_id)
@@ -212,20 +206,17 @@ class DataCleaningEnvironment(Environment):
         if act == ActionType.SUBMIT:
             self._done = True
             final_quality = prev_quality
-            # Efficiency bonus: reward solving in fewer steps
-            steps_used_ratio = self._state.step_count / max(self._state.max_steps, 1)
-            efficiency_bonus = 0.1 * max(0.0, 1.0 - steps_used_ratio)
-            reward = final_quality * 0.5 + efficiency_bonus  # submit bonus + efficiency
+            reward = compute_submit_reward(final_quality, self._state.step_count, self._state.max_steps)
             message = (
                 f"Submitted! Final quality score: {final_quality:.4f}. "
-                f"Submit bonus reward: {reward:.4f} (efficiency bonus: {efficiency_bonus:.4f})."
+                f"Submit bonus reward: {reward:.4f}."
             )
 
         elif act in (ActionType.FIX_VALUE, ActionType.FILL_MISSING, ActionType.FIX_TYPE):
             row, col, value = action.row, action.col, action.value
             err = self._validate_cell_action(row, col, value)
             if err:
-                reward = -0.05  # small penalty for invalid action
+                reward = compute_fix_reward(0.0, is_valid_action=False)
                 message = f"Invalid action: {err}"
             else:
                 c_idx = self._col_index(col)
@@ -233,14 +224,13 @@ class DataCleaningEnvironment(Environment):
                 self._current_data[row][c_idx] = value.strip()
                 new_quality = _compute_quality_score(self._current_data, self._ground_truth, self._task_id)
                 delta = new_quality - prev_quality
+                reward = compute_fix_reward(delta, is_valid_action=True)
 
                 if delta > 0:
-                    reward = delta + 0.1  # correct fix bonus
                     message = f"✓ Fixed [{row}][{col}]: '{old_val}' → '{value}'. Quality improved by {delta:.4f}."
                 elif delta < 0:
                     # Revert the change — penalize introduction of errors
                     self._current_data[row][c_idx] = old_val
-                    reward = -0.1
                     message = f"✗ Fixing [{row}][{col}] worsened quality — action reverted."
                 else:
                     message = f"~ [{row}][{col}] set to '{value}' but no quality change detected."
@@ -248,24 +238,23 @@ class DataCleaningEnvironment(Environment):
         elif act == ActionType.DELETE_ROW:
             row = action.row
             if row is None or row < 0 or row >= len(self._current_data):
-                reward = -0.05
+                reward = compute_invalid_action_penalty()
                 message = f"Invalid row index: {row}"
             else:
                 removed_row = self._current_data.pop(row)
                 new_quality = _compute_quality_score(self._current_data, self._ground_truth, self._task_id)
                 delta = new_quality - prev_quality
+                reward = compute_delete_reward(delta)
 
                 if delta > 0:
-                    reward = delta + 0.05
                     message = f"✓ Deleted row {row}. Quality improved by {delta:.4f}."
                 else:
                     # Revert — put row back
                     self._current_data.insert(row, removed_row)
-                    reward = -0.2  # stiff penalty for deleting valid rows
                     message = f"✗ Deleting row {row} worsened quality — reverted. Penalty applied."
 
         else:
-            reward = -0.05
+            reward = compute_invalid_action_penalty()
             message = f"Unknown action type: {act}"
 
         # ---- Increment step counter ----
@@ -274,15 +263,15 @@ class DataCleaningEnvironment(Environment):
         # ---- Check step limit ----
         if self._state.step_count >= self._state.max_steps and not self._done:
             self._done = True
-            reward -= 0.3  # max-step penalty
+            reward += compute_step_limit_penalty()
             message += f" [!] Step limit ({self._state.max_steps}) reached without submitting. Penalty applied."
 
         # ---- Recompute observation ----
-        current_quality = _clamp_reward(_compute_quality_score(self._current_data, self._ground_truth, self._task_id))
+        current_quality = clamp_reward(_compute_quality_score(self._current_data, self._ground_truth, self._task_id))
         profile = _compute_data_profile(self._current_data, self._col_names, self._col_types)
 
-        # Clamp reward to strictly within (0, 1) — validator rejects values outside this range
-        clamped_reward = round(_clamp_reward(reward), 4)
+        # Return raw reward — clamping is done in inference.py when writing stdout
+        raw_reward = round(reward, 4)
 
         return DataCleaningObservation(
             current_data=copy.deepcopy(self._current_data),
@@ -292,11 +281,12 @@ class DataCleaningEnvironment(Environment):
             quality_score=current_quality,
             message=message,
             done=self._done,
-            reward=clamped_reward,
+            reward=raw_reward,
         )
 
+    @property
     def state(self) -> DataCleaningState:
-        """Return current episode state (OpenEnv spec: must be a callable method)."""
+        """Return current episode state (OpenEnv spec: @property on base class)."""
         return self._state
 
     # ------------------------------------------------------------------
